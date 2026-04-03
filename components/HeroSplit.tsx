@@ -13,10 +13,13 @@ function lerp(a: number, b: number, t: number) {
 }
 
 export default function HeroSplit() {
-  const animRef   = useRef<number>(0);
-  const splitRef  = useRef(0);
-  const targetRef = useRef(0);
-  const inHeroRef = useRef(false);
+  const animRef      = useRef<number>(0);
+  const splitRef     = useRef(0);
+  const targetRef    = useRef(0);
+  const inHeroRef    = useRef(false);
+  const parallaxRef  = useRef(0);
+  const heroRef      = useRef<HTMLElement>(null);
+  const heroWidthRef = useRef(0); // cached hero width, updated on resize
 
   // Custom cursor
   const dotRef  = useRef<HTMLDivElement>(null);
@@ -26,19 +29,30 @@ export default function HeroSplit() {
   const dotY    = useRef(0);
 
   useEffect(() => {
-    const half = window.innerWidth / 2;
-    splitRef.current  = half;
-    targetRef.current = half;
+    // Use hero width (constrained by max-width) not window width
+    const w = heroRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    heroWidthRef.current  = w;
+    splitRef.current      = w / 2;
+    targetRef.current     = w / 2;
 
     const root = document.documentElement;
-    root.style.setProperty('--split', half + 'px');
+    root.style.setProperty('--split', (w / 2) + 'px');
 
     function loop() {
+      const hw = heroWidthRef.current;
+
       // ── Split ────────────────────────────────────────
-      const dest = inHeroRef.current ? targetRef.current : window.innerWidth / 2;
+      const dest = inHeroRef.current ? targetRef.current : hw / 2;
       const ease = inHeroRef.current ? 0.08 : 0.05;
       splitRef.current = lerp(splitRef.current, dest, ease);
       root.style.setProperty('--split', splitRef.current.toFixed(2) + 'px');
+
+      // ── Parallax: image drifts opposite to the mouse ──
+      const targetParallax = inHeroRef.current
+        ? (0.5 - targetRef.current / hw) * 32
+        : 0;
+      parallaxRef.current = lerp(parallaxRef.current, targetParallax, 0.06);
+      root.style.setProperty('--parallax', parallaxRef.current.toFixed(2) + 'px');
 
       // ── Cursor dot ────────────────────────────────────
       if (dotRef.current) {
@@ -58,8 +72,10 @@ export default function HeroSplit() {
     animRef.current = requestAnimationFrame(loop);
 
     const onResize = () => {
+      const newW = heroRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+      heroWidthRef.current = newW;
       if (!inHeroRef.current) {
-        targetRef.current = window.innerWidth / 2;
+        targetRef.current = newW / 2;
       }
     };
     window.addEventListener('resize', onResize);
@@ -71,9 +87,13 @@ export default function HeroSplit() {
   }, []);
 
   const onMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+    // Track position relative to the hero element, not the viewport,
+    // so the split is correct when the hero has max-width < viewport.
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX  = e.clientX - rect.left;
     inHeroRef.current = true;
-    targetRef.current = e.clientX;
-    curX.current = e.clientX;
+    targetRef.current = relX;
+    curX.current = e.clientX; // viewport coords — for the cursor dot
     curY.current = e.clientY;
     if (dotRef.current) dotRef.current.style.opacity = '1';
   };
@@ -86,6 +106,7 @@ export default function HeroSplit() {
   return (
     <>
       <section
+        ref={heroRef}
         className="hero"
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
